@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aether Academy Prototype</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="game-container">
+        <div class="stats-bar">
+            <span>Score: <span id="score-val">0</span></span>
+            <span>Rank: <span id="rank-val">Novice</span></span>
+        </div>
+
+        <div class="streak-bar">
+            <span id="streak-banner">Streak: <span id="streak-val">0</span> 🔥</span>
+        </div>
+
+        <div class="realm-tabs">
+            <button id="tab-equation" class="tab-btn active">Equation Empire</button>
+            <button id="tab-psyche" class="tab-btn">Psyche Realm</button>
+        </div>
+
+        <div class="combat-shield">
+            <div class="health-block">
+                <span class="character-name">PLAYER HP</span>
+                <div class="bar-container"><div id="player-hp" class="bar hp-fill"></div></div>
+            </div>
+            <div class="health-block">
+                <span class="character-name">REALM BOSS</span>
+                <div class="bar-container"><div id="boss-hp" class="bar boss-fill"></div></div>
+            </div>
+        </div>
+
+        <div class="inventory-hotbar">
+            <button id="item-potion" class="item-btn">❤️ Potion (<span id="count-potion">2</span>)</button>
+            <button id="item-scroll" class="item-btn">⏳ Chrono (<span id="count-scroll">1</span>)</button>
+        </div>
+
+        <div class="timer-wrapper">
+            <div id="action-timer" class="timer-bar"></div>
+        </div>
+
+        <div id="equation-realm" class="realm-content">
+            <h2>EMPIRE OF EQUATIONS</h2>
+            <p class="instructions">Mechanic: Balance the scale to isolate the variable:</p>
+            <div class="display-container">
+                <strong id="equation-text">Loading...</strong>
+            </div>
+            
+            <div class="puzzle-box">
+                <span class="scale-label">Value of X: <span id="x-value">0</span></span>
+                <input type="range" id="scale-slider" min="-10" max="10" value="0">
+            </div>
+        </div>
+
+        <div id="psyche-realm" class="realm-content hidden">
+            <h2>THE PSYCHE REALM</h2>
+            <p class="instructions">Mechanic: Determine the correct psychological phenomenon:</p>
+            
+            <div class="scenario-box">
+                <p id="scenario-text">Loading cognitive profile...</p>
+            </div>
+
+            <div id="options-container" class="options-grid">
+                </div>
+        </div>
+
+        <div id="feedback">Cast your spell...</div>
+        <button id="submit-btn">Cast Spell</button>
+    </div>
+
+    <script>
+        const tabEquation = document.getElementById('tab-equation');
+        const tabPsyche = document.getElementById('tab-psyche');
+        const equationRealm = document.getElementById('equation-realm');
+        const psycheRealm = document.getElementById('psyche-realm');
+        
+        const slider = document.getElementById('scale-slider');
+        const xValueDisplay = document.getElementById('x-value');
+        const equationText = document.getElementById('equation-text');
+        const scenarioText = document.getElementById('scenario-text');
+        const optionsContainer = document.getElementById('options-container');
+        
+        const submitBtn = document.getElementById('submit-btn');
+        const feedback = document.getElementById('feedback');
+        const scoreVal = document.getElementById('score-val');
+        const rankVal = document.getElementById('rank-val');
+        const streakVal = document.getElementById('streak-val');
+        const streakBanner = document.getElementById('streak-banner');
+        
+        const playerHpBar = document.getElementById('player-hp');
+        const bossHpBar = document.getElementById('boss-hp');
+        const actionTimer = document.getElementById('action-timer');
+        const gameContainer = document.getElementById('game-container');
+
+        // Inventory UI Targets
+        const btnPotion = document.getElementById('item-potion');
+        const btnScroll = document.getElementById('item-scroll');
+        const countPotion = document.getElementById('count-potion');
+        const countScroll = document.getElementById('count-scroll');
+
+        // Game State Variables
+        let currentRealm = 'equation'; 
+        let currentX = 0;
+        let currentPsycheAnswer = "";
+        let score = parseInt(localStorage.getItem('aether_score')) || 0;
+        
+        let playerHP = 100;
+        let bossHP = 100;
+        let countdownTimer;
+        const TIME_LIMIT = 15; 
+        let timeLeft = TIME_LIMIT;
+        let comboStreak = 0;
+        let damageMultiplier = 1;
+        let items = { potions: 2, scrolls: 1 };
+
+        const psychePuzzles = [
+            {
+                scenario: "A corporate manager attributes her team's project failure entirely to the laziness of her subordinates. However, when a different department fails, she claims it was due to unpredictable market fluctuations.",
+                options: ["Actor-Observer Asymmetry", "Self-Serving Bias", "Groupthink", "Confirmation Bias"],
+                correct: "Self-Serving Bias"
+            },
+            {
+                scenario: "A clinician observes a patient who recently went through a traumatic event. The patient insists they feel fine and instead starts meticulously organizing their entire house for 12 hours a day.",
+                options: ["Sublimation", "Intellectualization", "Reaction Formation", "Displacement"],
+                correct: "Sublimation"
+            },
+            {
+                scenario: "During a high-stakes boardroom meeting, team members privately hold doubts about an upcoming launch. However, because the CEO is enthusiastic, no one speaks up.",
+                options: ["Bystander Effect", "Groupthink", "Social Loafing", "Deindividuation"],
+                correct: "Groupthink"
+            }
+        ];
+
+        const mathPuzzles = [
+            { text: "4x - 7 = 17", target: 6 },
+            { text: "20 - 3x = 2", target: 6 },
+            { text: "x/2 + 9 = 13", target: 8 },
+            { text: "5x + 12 = -13", target: -5 },
+            { text: "2x - 15 = -9", target: 3 }
+        ];
+
+        // 💥 DYNAMIC DANGER VISUAL FX ENGINE TRIGGER
+        function triggerScreenFX(type) {
+            // Remove preexisting style triggers
+            gameContainer.classList.remove('fx-damage', 'fx-success');
+            
+            // Force a DOM reflow so phone re-renders the css sequence smoothly
+            void gameContainer.offsetWidth; 
+            
+            if (type === 'damage') {
+                gameContainer.classList.add('fx-damage');
+            } else if (type === 'success') {
+                gameContainer.classList.add('fx-success');
+            }
+        }
+
+        // Core Combat Timer Setup
+        function startTimer() {
+            clearInterval(countdownTimer);
+            actionTimer.style.width = (timeLeft / TIME_LIMIT) * 100 + "%";
+            
+            countdownTimer = setInterval(() => {
+                timeLeft--;
+                let percentage = (timeLeft / TIME_LIMIT) * 100;
+                actionTimer.style.width = percentage + "%";
+
+                if (timeLeft <= 5) {
+                    actionTimer.style.backgroundColor = "#F44336"; 
+                }
+
+                if (timeLeft <= 0) {
+                    clearInterval(countdownTimer);
+                    handleTimeOut();
+                }
+            }, 1000);
+        }
+
+        function handleTimeOut() {
+            resetStreak();
+            triggerScreenFX('damage'); // Trigger screen shake
+            playerHP = Math.max(0, playerHP - 20);
+            playerHpBar.style.width = playerHP + "%";
+            feedback.textContent = "💥 TIME EXPIRED! Spell failed and defense hit! (-20 HP)";
+            feedback.style.color = "#F44336";
+            checkDeathStatus();
+            setTimeout(nextTurn, 2000);
+        }
+
+        function nextTurn() {
+            if (playerHP <= 0 || bossHP <= 0) return;
+            timeLeft = TIME_LIMIT;
+            actionTimer.style.backgroundColor = "#00ffca";
+            if (currentRealm === 'equation') generateNewEquation();
+            else generatePsychePuzzle();
+            startTimer();
+        }
+
+        // Item Usage Hooks
+        btnPotion.addEventListener('click', () => {
+            if (items.potions > 0 && playerHP < 100) {
+                items.potions--;
+                countPotion.textContent = items.potions;
+                playerHP = Math.min(100, playerHP + 30);
+                playerHpBar.style.width = playerHP + "%";
+                feedback.textContent = "❤️ HEALED! Consumed item grid for +30 HP!";
+                feedback.style.color = "#00ffca";
+                triggerScreenFX('success');
+            }
+        });
+
+        btnScroll.addEventListener('click', () => {
+            if (items.scrolls > 0) {
+                items.scrolls--;
+                countScroll.textContent = items.scrolls;
+                timeLeft = Math.min(TIME_LIMIT, timeLeft + 10);
+                actionTimer.style.width = (timeLeft / TIME_LIMIT) * 100 + "%";
+                feedback.textContent = "⏳ CHRONO WARP! Added +10s to combat field clock!";
+                feedback.style.color = "#00ffca";
+                triggerScreenFX('success');
+            }
+        });
+
+        function incrementStreak() {
+            comboStreak++;
+            streakVal.textContent = comboStreak;
+            if (comboStreak >= 3) {
+                damageMultiplier = 2;
+                streakBanner.textContent = `COMBO BURST ACTIVE (2x DMG)! 🔥`;
+                streakBanner.style.color = "#ff007f";
+                streakBanner.classList.add('pulse-text');
+            }
+        }
+
+        function resetStreak() {
+            comboStreak = 0;
+            damageMultiplier = 1;
+            streakVal.textContent = "0";
+            streakBanner.innerHTML = 'Streak: <span id="streak-val">0</span> 🔥';
+            streakBanner.style.color = "#a0aec0";
+            streakBanner.classList.remove('pulse-text');
+        }
+
+        function checkDeathStatus() {
+            if (playerHP <= 0) {
+                clearInterval(countdownTimer);
+                resetStreak();
+                feedback.textContent = "💀 DEFEATED! Restoring terminal coordinates...";
+                feedback.style.color = "#F44336";
+                setTimeout(() => {
+                    playerHP = 100; bossHP = 100;
+                    items.potions = 2; items.scrolls = 1; 
+                    countPotion.textContent = items.potions; countScroll.textContent = items.scrolls;
+                    playerHpBar.style.width = "100%"; bossHpBar.style.width = "100%";
+                    score = Math.max(0, score - 20);
+                    updateRank(); nextTurn();
+                }, 3000);
+            } else if (bossHP <= 0) {
+                clearInterval(countdownTimer);
+                feedback.textContent = "🏆 BOSS VANQUISHED! Item drops recovered!";
+                feedback.style.color = "#ff007f";
+                score += 50;
+                items.potions += 1; items.scrolls += 1;
+                countPotion.textContent = items.potions; countScroll.textContent = items.scrolls;
+                updateRank();
+                setTimeout(() => {
+                    bossHP = 100; bossHpBar.style.width = "100%"; nextTurn();
+                }, 3000);
+            }
+        }
+
+        // Navigation Switcher
+        tabEquation.addEventListener('click', () => {
+            currentRealm = 'equation';
+            tabEquation.classList.add('active'); tabPsyche.classList.remove('active');
+            equationRealm.classList.remove('hidden'); psycheRealm.classList.add('hidden');
+            submitBtn.classList.remove('hidden'); nextTurn();
+        });
+
+        tabPsyche.addEventListener('click', () => {
+            currentRealm = 'psyche';
+            tabPsyche.classList.add('active'); tabEquation.classList.remove('active');
+            psycheRealm.classList.remove('hidden'); equationRealm.classList.add('hidden');
+            submitBtn.classList.add('hidden'); nextTurn();
+        });
+
+        function generateNewEquation() {
+            const randomMath = mathPuzzles[Math.floor(Math.random() * mathPuzzles.length)];
+            equationText.textContent = randomMath.text;
+            currentX = randomMath.target;
+            slider.value = 0; xValueDisplay.textContent = 0;
+            feedback.textContent = comboStreak >= 3 ? "🔥 COMBO SPELL READY!" : "Cast your spell...";
+            feedback.style.color = "#ffffff";
+        }
+
+        slider.addEventListener('input', () => { xValueDisplay.textContent = slider.value; });
+
+        function generatePsychePuzzle() {
+            const randomPuzzle = psychePuzzles[Math.floor(Math.random() * psychePuzzles.length)];
+            scenarioText.textContent = `"${randomPuzzle.scenario}"`;
+            currentPsycheAnswer = randomPuzzle.correct;
+            feedback.textContent = comboStreak >= 3 ? "🔥 COMBO SPELL READY!" : "Cast your spell...";
+            feedback.style.color = "#ffffff";
+
+            optionsContainer.innerHTML = "";
+            const shuffledOptions = [...randomPuzzle.options].sort(() => Math.random() - 0.5);
+            shuffledOptions.forEach(option => {
+                const btn = document.createElement('button');
+                btn.className = "option-btn"; btn.textContent = option;
+                btn.addEventListener('click', () => checkPsycheAnswer(option));
+                optionsContainer.appendChild(btn);
+            });
+        }
+
+        function updateRank() {
+            scoreVal.textContent = score;
+            localStorage.setItem('aether_score', score);
+            if (score >= 120) rankVal.textContent = "Elite Scholar";
+            else if (score >= 60) rankVal.textContent = "Adept Researcher";
+            else rankVal.textContent = "Novice Academic";
+        }
+
+        submitBtn.addEventListener('click', () => {
+            if (currentRealm !== 'equation' || timeLeft <= 0) return;
+            clearInterval(countdownTimer);
+
+            if (parseInt(slider.value) === currentX) {
+                score += 15;
+                let finalDamage = 25 * damageMultiplier;
+                bossHP = Math.max(0, bossHP - finalDamage);
+                bossHpBar.style.width = bossHP + "%";
+                feedback.textContent = `💥 HIT! Dealt ${finalDamage} DMG!`;
+                feedback.style.color = "#00ffca";
+                triggerScreenFX('success'); // Flash green glow
+                incrementStreak();
+            } else {
+                resetStreak();
+                playerHP = Math.max(0, playerHP - 15);
+                playerHpBar.style.width = playerHP + "%";
+                feedback.textContent = "⚡ MISFIRE! Damage sustained! (-15 HP)";
+                feedback.style.color = "#F44336";
+                triggerScreenFX('damage'); // Shake red glow
+            }
+            updateRank(); checkDeathStatus(); setTimeout(nextTurn, 1800);
+        });
+
+        function checkPsycheAnswer(selectedOption) {
+            if (timeLeft <= 0) return;
+            clearInterval(countdownTimer);
+            
+            const buttons = optionsContainer.querySelectorAll('.option-btn');
+            buttons.forEach(btn => btn.style.pointerEvents = 'none');
+
+            if (selectedOption === currentPsycheAnswer) {
+                score += 20;
+                let finalDamage = 35 * damageMultiplier;
+                bossHP = Math.max(0, bossHP - finalDamage);
+                bossHpBar.style.width = bossHP + "%";
+                feedback.textContent = `🔮 SPELL CRITICAL! Dealt ${finalDamage} DMG!`;
+                feedback.style.color = "#00ffca";
+                triggerScreenFX('success'); // Flash green glow
+                incrementStreak();
+            } else {
+                resetStreak();
+                playerHP = Math.max(0, playerHP - 15);
+                playerHpBar.style.width = playerHP + "%";
+                feedback.textContent = `❌ ERROR! Answer was: ${currentPsycheAnswer}`;
+                feedback.style.color = "#F44336";
+                triggerScreenFX('damage'); // Shake red glow
+            }
+            updateRank(); checkDeathStatus(); setTimeout(nextTurn, 1800);
+        }
+
+        updateRank(); nextTurn();
+    </script>
+</body>
+</html>
